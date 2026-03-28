@@ -3,6 +3,7 @@ bot.py
 Telegram bot that accepts a YouTube URL and returns the processed reel video.
 Uses python-telegram-bot v20+ (async Application).
 """
+import os
 import re
 import asyncio
 import logging
@@ -89,7 +90,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
     try:
-        output_path, title = await _run_in_thread(url)
+        output_path, raw_path, title = await _run_in_thread(url)
 
         await status_msg.delete()
 
@@ -101,10 +102,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 supports_streaming=True,
             )
 
+        # ── Cleanup ──────────────────────────────────────────────────────────
+        # 1. Remove specific files
+        for path in [output_path, raw_path]:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+                    logger.info("Removed temporary file: %s", path)
+            except Exception as e:
+                logger.warning("Failed to remove temporary file %s: %s", path, e)
+
+        # 2. Sweep directories (as requested: "remove all files from downloads and output")
+        for folder in ["downloads", "output"]:
+            try:
+                if os.path.isdir(folder):
+                    for filename in os.listdir(folder):
+                        file_path = os.path.join(folder, filename)
+                        if os.path.isfile(file_path):
+                            os.remove(file_path)
+                    logger.info("Swept directory: %s", folder)
+            except Exception as e:
+                logger.warning("Failed to sweep directory %s: %s", folder, e)
+
     except Exception as exc:
         logger.exception("Pipeline failed for %s", url)
+        error_msg = str(exc)
+        
+        # Friendly suggestion for common auth errors
+        if "sign in" in error_msg.lower() or "bot" in error_msg.lower():
+            hint = (
+                "\n\n💡 *Hint:* YouTube is blocking the bot. Depending on your setup:\n"
+                "1. Ensure you are logged into YouTube in Chrome or Firefox.\n"
+                "2. If that fails, export your YouTube cookies to a `cookies.txt` "
+                "file in the project folder."
+            )
+            error_msg += hint
+
         await status_msg.edit_text(
-            f"❌ *Something went wrong!*\n\n`{exc}`",
+            f"❌ *Something went wrong!*\n\n`{error_msg}`",
             parse_mode="Markdown",
         )
 

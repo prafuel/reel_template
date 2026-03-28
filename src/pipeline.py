@@ -29,7 +29,7 @@ def run_pipeline(
     Run the full pipeline for a YouTube URL.
 
     Returns:
-        (output_path, title)
+        (output_path, raw_path, title)
     """
     # ── 1. Download (cached if already present) ───────────────────────────────
     print(f"[1/3] Downloading: {url}")
@@ -60,7 +60,7 @@ def run_pipeline(
             output_path=output_path,
         )
         print(f"✅ Done: {output_path}")
-        return output_path, title
+        return output_path, raw_path, title
 
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
