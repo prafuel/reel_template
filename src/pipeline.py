@@ -49,7 +49,11 @@ def run_pipeline(
     try:
         # ── 3. Watermark ──────────────────────────────────────────────────────
         print(f"[2/3] Adding watermark: {watermark}")
-        add_watermark(raw_path, watermarked_path, watermark_text=watermark)
+        add_watermark(
+            raw_path, 
+            watermarked_path, 
+            watermark_text=watermark
+        )
 
         # ── 4. Composite ──────────────────────────────────────────────────────
         print(f"[3/3] Compositing …  Caption: {caption}")
