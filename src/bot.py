@@ -17,6 +17,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from telegram.request import HTTPXRequest
 
 from src.pipeline import run_pipeline
 
@@ -46,10 +47,10 @@ def _extract_url(text: str) -> str | None:
     return url
 
 
-async def _run_in_thread(url: str):
+async def _run_in_thread(url: str, caption: str | None = None):
     """Run the blocking pipeline in a thread-pool executor."""
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(_executor, run_pipeline, url)
+    return await loop.run_in_executor(_executor, run_pipeline, url, caption)
 
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
@@ -58,8 +59,9 @@ WELCOME_TEXT = (
     "👋 *Welcome to the Reel Bot!*\n\n"
     "Send me any *YouTube link* and I'll turn it into an "
     "Instagram-ready 9:16 reel with watermark and caption.\n\n"
-    "Just paste a URL like:\n"
-    "`https://youtu.be/dQw4w9WgXcQ`"
+    "*Formats supported:*\n"
+    "`https://youtu.be/xxxxx` — uses video title as caption\n"
+    "`https://youtu.be/xxxxx My custom caption` — uses your text\n"
 )
 
 
@@ -69,6 +71,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(WELCOME_TEXT, parse_mode="Markdown")
+
+
+def _extract_caption(text: str, url: str) -> str | None:
+    """Return text that follows the URL in *text*, stripped; None if empty."""
+    remainder = text.replace(url, "", 1).strip()
+    return remainder if remainder else None
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -83,6 +91,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
 
+    caption_override = _extract_caption(text, url)
+
     status_msg = await update.message.reply_text(
         "⏳ *Processing your video…*\n"
         "This may take a few minutes depending on video length.",
@@ -90,14 +100,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
     try:
-        output_path, raw_path, title = await _run_in_thread(url)
+        output_path, raw_path, title = await _run_in_thread(url, caption_override)
 
         await status_msg.delete()
 
         with open(output_path, "rb") as video_file:
             await update.message.reply_video(
                 video=video_file,
-                caption=f"🎬 *{title}*",
+                caption=f"🎬 *{caption_override or title}*",
                 parse_mode="Markdown",
                 supports_streaming=True,
             )
@@ -147,7 +157,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # ── Application factory ───────────────────────────────────────────────────────
 
 def build_app(token: str) -> Application:
-    app = Application.builder().token(token).build()
+    request = HTTPXRequest(
+        read_timeout=60,
+        write_timeout=60,
+        connect_timeout=30,
+        pool_timeout=60,
+    )
+    app = Application.builder().token(token).request(request).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
